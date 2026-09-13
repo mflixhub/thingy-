@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         Sub2s Auto-Bypass + Key Grabber v3
-// @version      3.0
-// @description  Start -> robot check -> CONTINUE -> hops -> GET KEY -> copy
+// @name         Sub2s Auto-Bypass + Key Grabber v3.1
+// @version      3.1
+// @description  Start -> robot check -> CONTINUE -> hops -> GET KEY -> OPEN LINK -> key -> copy
 // @match        https://api.sub2s.com/*
 // @match        https://*.sub2s.com/*
 // @match        https://*.layma.net/*
@@ -14,10 +14,11 @@
 
 (function () {
   'use strict';
-  if (window.__sub2sV3) return;          // don't run twice on SPAs
-  window.__sub2sV3 = true;
+  if (window.__sub2sV31) return;          // don't double-run
+  window.__sub2sV31 = true;
+  const S = window.__kchState = window.__kchState || {};   // per-page action flags
 
-  /* 0. kill ad/scareware popups opened by the chain (but never kill authtool/sub2s tabs) */
+  /* 0. kill ad popups opened by the chain (never kill sub2s/authtool tabs) */
   const CHAIN = /sub2s\.com|layma\.net|ontops\.link|authtool\.app/;
   let fromChain = false;
   try { fromChain = CHAIN.test(window.opener.location.href); } catch (e) {}
@@ -37,6 +38,8 @@
       return t && words.some(w => t.includes(w)) && visible(b);
     });
 
+  const LINK_RE = /(?:https?:\/\/)?(?:api\.)?sub2s\.com\/l\/([a-z0-9]+)/i;
+
   function extractResult() {
     let h = location.href;
     try { h = decodeURIComponent(decodeURIComponent(h)); } catch (e) {}
@@ -49,13 +52,13 @@
     catch (e) { log('clipboard blocked — copy manually'); }
   }
 
-  /* ---------- UI panel ---------- */
+  /* ---------- purple UI panel ---------- */
   const panel = document.createElement('div');
-  panel.style.cssText = 'position:fixed;bottom:16px;right:16px;z-index:2147483647;width:270px;background:#1e1b2e;border:1px solid #7c4dff;border-radius:12px;padding:12px;font:13px/1.4 system-ui;color:#fff;box-shadow:0 4px 20px rgba(0,0,0,.5)';
+  panel.style.cssText = 'position:fixed;bottom:16px;right:16px;z-index:2147483647;width:270px;background:linear-gradient(160deg,#241a3f,#17102a);border:1px solid #9d6bff;border-radius:14px;padding:12px;font:13px/1.4 system-ui;color:#f3edff;box-shadow:0 6px 24px rgba(124,77,255,.45)';
   panel.innerHTML = `
-    <div style="font-weight:700;margin-bottom:6px;color:#c1c0ff">🔑 Sub2s Helper v3</div>
-    <div id="kch-status" style="color:#aaa;margin-bottom:8px">starting…</div>
-    <div id="kch-logs" style="max-height:110px;overflow:auto;font-size:11px;color:#8f8f9f;margin-bottom:8px"></div>
+    <div style="font-weight:700;margin-bottom:6px;color:#c9b3ff">🔑 Sub2s Helper v3.1</div>
+    <div id="kch-status" style="color:#b9a8e8;margin-bottom:8px">starting…</div>
+    <div id="kch-logs" style="max-height:110px;overflow:auto;font-size:11px;color:#8f7fc9;margin-bottom:8px"></div>
     <label style="display:flex;gap:6px;align-items:center;font-size:12px;cursor:pointer">
       <input type="checkbox" id="kch-auto" checked> auto-run
     </label>`;
@@ -66,12 +69,13 @@
 
   /* ---------- big key banner ---------- */
   function showKeyBanner(key) {
+    if (S.bannerShown) return; S.bannerShown = true;
     const b = document.createElement('div');
-    b.style.cssText = 'position:fixed;inset:0;z-index:2147483647;background:rgba(10,8,25,.92);display:flex;align-items:center;justify-content:center;font-family:system-ui';
-    b.innerHTML = `<div style="background:#1e1b2e;border:2px solid #7c4dff;border-radius:16px;padding:32px 40px;text-align:center;color:#fff;max-width:90vw">
+    b.style.cssText = 'position:fixed;inset:0;z-index:2147483647;background:rgba(18,10,38,.94);display:flex;align-items:center;justify-content:center;font-family:system-ui';
+    b.innerHTML = `<div style="background:linear-gradient(160deg,#2a1d4d,#160f2b);border:2px solid #9d6bff;border-radius:16px;padding:32px 40px;text-align:center;color:#f3edff;max-width:90vw;box-shadow:0 0 60px rgba(124,77,255,.5)">
       <div style="font-size:22px;font-weight:700;margin-bottom:8px">🎉 Your Key</div>
-      <div style="font-size:14px;color:#aaa;margin-bottom:16px">Save it — it won't show again after closing</div>
-      <div style="font-family:monospace;font-size:18px;background:#12101f;border-radius:8px;padding:14px 18px;margin-bottom:16px;user-select:all;word-break:break-all">${key}</div>
+      <div style="font-size:14px;color:#b9a8e8;margin-bottom:16px">Save it — it won't show again after closing</div>
+      <div style="font-family:monospace;font-size:18px;background:#120b24;border-radius:8px;padding:14px 18px;margin-bottom:16px;user-select:all;word-break:break-all">${key}</div>
       <button id="kch-copy" style="background:#7c4dff;color:#fff;border:0;border-radius:8px;padding:12px 28px;font-size:15px;font-weight:600;cursor:pointer">📋 COPY KEY</button>
     </div>`;
     document.body.appendChild(b);
@@ -84,68 +88,97 @@
 
   /* ---------- sub2s ---------- */
   async function runSub2s() {
-    // A) method-selection page: BẮT ĐẦU VƯỆT LINK
-    const start = byText(['BẮT ĐẦU VƯỆT LINK', 'BẮT ĐẦU', 'GET LINK']);
-    if (start) {
-      log('clicking "BẮT ĐẦU VƯỆT LINK"…');
-      status('starting bypass…');
-      await sleep(600);
-      start.click();
-      return;
+    // A) selection page: BẮT ĐẦU VƯỆT LINK
+    if (!S.started) {
+      const start = byText(['BẮT ĐẦU VƯỆT LINK', 'BẮT ĐẦU', 'GET LINK']);
+      if (start) {
+        S.started = true;
+        log('clicking "BẮT ĐẦU VƯỆT LINK"…');
+        status('starting bypass…');
+        await sleep(600);
+        start.click();
+        return;
+      }
     }
 
-    // B) confirm page: click robot image once (ad popup auto-closes itself)
-    const robot = $$('img').find(im => /lock\.png/i.test(im.src) && !/unlock/i.test(im.src));
-    if (robot) {
-      log('clicking robot image…');
-      robot.click();
+    // B) confirm page: robot image once
+    if (!S.robotClicked) {
+      const robot = $$('img').find(im => /lock\.png/i.test(im.src) && !/unlock/i.test(im.src));
+      if (robot) {
+        S.robotClicked = true;
+        log('clicking robot image…');
+        robot.click();
+      }
     }
-    if ($('iframe[src*="challenges.cloudflare"]')) {
+    if ($('iframe[src*="challenges.cloudflare"]') && !S.cfNoted) {
+      S.cfNoted = true;
       status('⚠️ click the Cloudflare checkbox once if it asks');
     }
 
     // wait for unlock, then CONTINUE
-    for (let i = 0; i < 120; i++) {
-      await sleep(1000);
+    if (!S.continued) {
       const go = byText(['TIẾP TỤC', 'CONTINUE']);
       if (go) {
+        S.continued = true;
         await sleep(700);
         go.click();
         log('pressed CONTINUE — following redirect…');
         status('redirecting…');
-        return;
       }
     }
-    status('CONTINUE never appeared — click the robot image again');
   }
 
   /* ---------- authtool ---------- */
   async function runAuthtool() {
+    // 1) FINAL key page: ?result=...
     const key = extractResult();
-    if (key) {                       // final key page
+    if (key) {
       status('✅ KEY READY');
       log('key: ' + key);
       copyKey(key);
       showKeyBanner(key);
       return;
     }
-    // code page: wait for Cloudflare success, then click GET KEY
-    status('waiting for Cloudflare check…');
-    if ($('iframe[src*="challenges.cloudflare"]')) {
-      log('if a checkbox appears, click it once');
+
+    // 2) "access the link below to get your key" page -> OPEN LINK
+    if (!S.openedLink) {
+      const openBtn = byText(['OPEN LINK', 'MỞ LINK']);
+      const targetA = $$('a').find(a => LINK_RE.test(a.href)) ||
+                      $$('a').find(a => LINK_RE.test(a.textContent || ''));
+      const url = (openBtn && (openBtn.href || (LINK_RE.exec(openBtn.textContent || '') || [])[0]))
+                  || (targetA && (targetA.href || targetA.textContent.trim()));
+      if (openBtn || url) {
+        const m = url && LINK_RE.exec(url);
+        if (m) log('found key link code: ' + m[1]);
+        S.openedLink = true;
+        status('opening key link…');
+        if (url && /^https?:\/\//.test(url)) {
+          setTimeout(() => { location.href = url; }, 500);
+        } else if (url) {
+          setTimeout(() => { location.href = 'https://' + url.replace(/^\/+/, ''); }, 500);
+        } else {
+          openBtn.click();   // let the button do whatever it does
+        }
+        return;
+      }
     }
-    for (let i = 0; i < 120; i++) {
-      await sleep(1000);
+
+    // 3) code page -> wait for Cloudflare success, click GET KEY
+    if (!S.gotKey) {
+      if ($('iframe[src*="challenges.cloudflare"]') && !S.cfNoted) {
+        S.cfNoted = true;
+        log('if a checkbox appears, click it once');
+        status('waiting for Cloudflare check…');
+      }
       const btn = byText(['GET KEY']);
       if (btn) {
+        S.gotKey = true;
         await sleep(500);
         btn.click();
         log('clicked GET KEY');
         status('fetching key…');
-        return;
       }
     }
-    status('GET KEY button not found');
   }
 
   /* ---------- route ---------- */
@@ -155,19 +188,23 @@
     if (host.includes('authtool.app')) return runAuthtool();
     // layma / ontops / any hop
     const key = extractResult();
-    if (key) {
+    if (key && !S.hopped) {
+      S.hopped = true;
       status('KEY FOUND! 🎉');
       log('key: ' + key);
       copyKey(key);
       setTimeout(() => {
         location.href = 'https://authtool.app/get-key/?result=' + encodeURIComponent(key);
       }, 1000);
-    } else {
+    } else if (!key) {
       status('hop page — waiting for redirect…');
-      log(host);
     }
   };
 
-  if ($('#kch-auto').checked) run();
-  $('#kch-auto').addEventListener('change', e => { if (e.target.checked) run(); });
+  run();
+  // keep re-checking every 2.5s so slow buttons / SPA renders still get caught
+  setInterval(() => {
+    const auto = $('#kch-auto');
+    if (auto && auto.checked) run();
+  }, 2500);
 })();
