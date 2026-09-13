@@ -20,6 +20,9 @@
   window.__sub2sV33 = true;
   const S = window.__kchState = window.__kchState || {};
   const CHAIN = /sub2s\.com|layma\.net|ontops\.link|authtool\.app/;
+  
+  // Track exactly when the script started running on the page
+  const pageEnterTime = Date.now();
 
   /* kill ad popups opened by the chain */
   let fromChain = false;
@@ -150,7 +153,17 @@
       const btn = byText(['GET KEY']);
       if (btn) {
         S.gotKey = true;
-        await sleep(500);
+        
+        // Calculate how much time has passed since entering the website
+        const elapsed = Date.now() - pageEnterTime;
+        const targetDelay = 2890; // 2.89 seconds
+        const waitTime = Math.max(0, targetDelay - elapsed);
+        
+        if (waitTime > 0) {
+            log(`Waiting remaining ${waitTime}ms to meet 2.89s rule...`);
+            await sleep(waitTime);
+        }
+        
         btn.click();
         log('clicked GET KEY');
         status('getting key link…');
@@ -175,7 +188,7 @@
       const start = byText(['BẮT ĐẦU VƯỢT LINK', 'BẮT ĐẦU', 'GET LINK']);
       if (start) {
         S.started = true;
-        log('clicked BẮT ĐẦU VƯỆT LINK');
+        log('clicked BẮT ĐẦU VƯỢT LINK');
         status('starting bypass…');
         await sleep(600);
         start.click();
